@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FileText, Plus, Trash2, Edit2, Save, X } from 'lucide-react';
+import { FileText, Plus, Trash2, Edit2, Save, X, Maximize2, Minimize2 } from 'lucide-react';
 
 interface Note {
   id: string;
@@ -35,6 +35,11 @@ export function Notes() {
   const [editContent, setEditContent] = useState('');
   const [showNewNote, setShowNewNote] = useState(false);
   const [newNote, setNewNote] = useState({ title: '', content: '' });
+  const [showNoteModal, setShowNoteModal] = useState(false);
+  const [modalFullScreen, setModalFullScreen] = useState(false);
+  const [isEditingInModal, setIsEditingInModal] = useState(false);
+  const [modalEditTitle, setModalEditTitle] = useState('');
+  const [modalEditContent, setModalEditContent] = useState('');
 
   const selectNote = (note: Note) => {
     setSelectedNote(note);
@@ -194,23 +199,42 @@ export function Notes() {
                       </motion.button>
                     </>
                   ) : (
-                    <motion.button
-                      whileHover={{ scale: 1.1 }}
-                      whileTap={{ scale: 0.9 }}
-                      onClick={startEditing}
-                      className="p-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-white hover:bg-zinc-200 dark:hover:bg-zinc-700"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </motion.button>
+                    <>
+                      <motion.button
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
+                        onClick={() => {
+                          setShowNoteModal(true);
+                          setModalFullScreen(false);
+                          setIsEditingInModal(false);
+                          if (selectedNote) {
+                            setModalEditTitle(selectedNote.title);
+                            setModalEditContent(selectedNote.content);
+                          }
+                        }}
+                        className="p-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-white hover:bg-zinc-200 dark:hover:bg-zinc-700"
+                        title="Open in modal"
+                      >
+                        <Maximize2 className="w-4 h-4" />
+                      </motion.button>
+                      <motion.button
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
+                        onClick={startEditing}
+                        className="p-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-white hover:bg-zinc-200 dark:hover:bg-zinc-700"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </motion.button>
+                    </>
                   )}
                 </div>
               </div>
-              <div className="flex-1 p-6 overflow-y-auto">
+              <div className="flex-1 p-6 overflow-y-auto min-h-[500px]">
                 {isEditing ? (
                   <textarea
                     value={editContent}
                     onChange={(e) => setEditContent(e.target.value)}
-                    className="w-full h-full bg-transparent focus:outline-none text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-500 resize-none"
+                    className="w-full h-full min-h-[500px] bg-transparent focus:outline-none text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-500 resize-none"
                     placeholder="Start writing..."
                   />
                 ) : (
@@ -232,6 +256,166 @@ export function Notes() {
           )}
         </div>
       </div>
+
+      {/* Note View Modal */}
+      <AnimatePresence>
+        {showNoteModal && selectedNote && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center"
+            onClick={() => {
+              if (!isEditingInModal) {
+                setShowNoteModal(false);
+              }
+            }}
+          >
+            <motion.div
+              initial={modalFullScreen ? { scale: 0.95, opacity: 0 } : { y: '-100%', opacity: 0 }}
+              animate={modalFullScreen ? { scale: 1, opacity: 1 } : { y: 0, opacity: 1 }}
+              exit={modalFullScreen ? { scale: 0.95, opacity: 0 } : { y: '-100%', opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className={`
+                bg-white dark:bg-zinc-800 shadow-2xl flex flex-col
+                ${modalFullScreen 
+                  ? 'w-full h-full rounded-none' 
+                  : 'w-full max-w-4xl h-[90vh] rounded-t-3xl rounded-b-2xl'
+                }
+              `}
+            >
+              {/* Modal Header */}
+              <div className="p-6 border-b border-zinc-200 dark:border-zinc-700 flex items-center justify-between">
+                {isEditingInModal ? (
+                  <input
+                    type="text"
+                    value={modalEditTitle}
+                    onChange={(e) => setModalEditTitle(e.target.value)}
+                    className="flex-1 text-2xl font-bold bg-transparent border-b-2 border-blue-500 focus:outline-none text-zinc-900 dark:text-white mr-4"
+                    placeholder="Note title"
+                  />
+                ) : (
+                  <h3 
+                    className="text-2xl font-bold text-zinc-900 dark:text-white cursor-text"
+                    onClick={() => {
+                      setIsEditingInModal(true);
+                      setModalEditTitle(selectedNote.title);
+                      setModalEditContent(selectedNote.content);
+                    }}
+                  >
+                    {selectedNote.title}
+                  </h3>
+                )}
+                <div className="flex gap-2">
+                  {isEditingInModal ? (
+                    <>
+                      <motion.button
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
+                        onClick={() => {
+                          if (selectedNote) {
+                            const updatedNote = {
+                              ...selectedNote,
+                              title: modalEditTitle,
+                              content: modalEditContent,
+                              updatedAt: new Date()
+                            };
+                            setNotes(notes.map(note =>
+                              note.id === selectedNote.id ? updatedNote : note
+                            ));
+                            setSelectedNote(updatedNote);
+                            setEditTitle(modalEditTitle);
+                            setEditContent(modalEditContent);
+                          }
+                          setIsEditingInModal(false);
+                        }}
+                        className="p-2 rounded-lg bg-green-600 text-white hover:bg-green-700"
+                        title="Save"
+                      >
+                        <Save className="w-4 h-4" />
+                      </motion.button>
+                      <motion.button
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
+                        onClick={() => {
+                          setIsEditingInModal(false);
+                          setModalEditTitle(selectedNote.title);
+                          setModalEditContent(selectedNote.content);
+                        }}
+                        className="p-2 rounded-lg bg-zinc-200 dark:bg-zinc-700 text-zinc-900 dark:text-white hover:bg-zinc-300 dark:hover:bg-zinc-600"
+                        title="Cancel"
+                      >
+                        <X className="w-4 h-4" />
+                      </motion.button>
+                    </>
+                  ) : (
+                    <>
+                      <motion.button
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
+                        onClick={() => setModalFullScreen(!modalFullScreen)}
+                        className="p-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-white hover:bg-zinc-200 dark:hover:bg-zinc-700"
+                        title={modalFullScreen ? 'Minimize' : 'Full Screen'}
+                      >
+                        {modalFullScreen ? (
+                          <Minimize2 className="w-4 h-4" />
+                        ) : (
+                          <Maximize2 className="w-4 h-4" />
+                        )}
+                      </motion.button>
+                      <motion.button
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
+                        onClick={() => setShowNoteModal(false)}
+                        className="p-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-white hover:bg-zinc-200 dark:hover:bg-zinc-700"
+                      >
+                        <X className="w-4 h-4" />
+                      </motion.button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Modal Content */}
+              <div className="flex-1 p-6 overflow-y-auto">
+                {isEditingInModal ? (
+                  <textarea
+                    value={modalEditContent}
+                    onChange={(e) => setModalEditContent(e.target.value)}
+                    className="w-full h-full min-h-[400px] bg-transparent focus:outline-none text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-500 resize-none text-lg leading-relaxed"
+                    placeholder="Start writing..."
+                  />
+                ) : (
+                  <div 
+                    className="prose dark:prose-invert max-w-none cursor-text"
+                    onClick={() => {
+                      setIsEditingInModal(true);
+                      setModalEditTitle(selectedNote.title);
+                      setModalEditContent(selectedNote.content);
+                    }}
+                  >
+                    <p className="text-zinc-900 dark:text-white whitespace-pre-wrap text-lg leading-relaxed">
+                      {selectedNote.content || 'No content - click to edit'}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Footer */}
+              {!isEditingInModal && (
+                <div className="p-6 border-t border-zinc-200 dark:border-zinc-700">
+                  <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                    Last updated: {selectedNote.updatedAt.toLocaleDateString()} {selectedNote.updatedAt.toLocaleTimeString()}
+                  </p>
+                  <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-2">
+                    Click on the title or content to edit
+                  </p>
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* New Note Modal */}
       <AnimatePresence>
