@@ -1,34 +1,20 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FileText, Plus, Trash2, Edit2, Save, X, Maximize2, Minimize2 } from 'lucide-react';
+import { supabase } from '@/lib/supabaseClient';
 
 interface Note {
   id: string;
   title: string;
   content: string;
-  createdAt: Date;
-  updatedAt: Date;
+  created_at: string;
+  updated_at: string;
 }
 
 export function Notes() {
-  const [notes, setNotes] = useState<Note[]>([
-    {
-      id: '1',
-      title: 'Project Ideas',
-      content: 'Brainstorm new features for the productivity app...',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    },
-    {
-      id: '2',
-      title: 'Meeting Notes',
-      content: 'Discussed timeline and deliverables...',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    },
-  ]);
+  const [notes, setNotes] = useState<Note[]>([]);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState('');
@@ -40,6 +26,41 @@ export function Notes() {
   const [isEditingInModal, setIsEditingInModal] = useState(false);
   const [modalEditTitle, setModalEditTitle] = useState('');
   const [modalEditContent, setModalEditContent] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Load notes from Supabase
+  useEffect(() => {
+    fetchNotes();
+  }, []);
+
+  const fetchNotes = async () => {
+    try {
+      setIsLoading(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        console.log('No user session found');
+        setIsLoading(false);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('notes')
+        .select('*')
+        .order('updated_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching notes:', error);
+        return;
+      }
+
+      setNotes(data || []);
+    } catch (error) {
+      console.error('Error loading notes:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const selectNote = (note: Note) => {
     setSelectedNote(note);
@@ -52,15 +73,37 @@ export function Notes() {
     setIsEditing(true);
   };
 
-  const saveNote = () => {
+  const saveNote = async () => {
     if (selectedNote) {
-      setNotes(notes.map(note =>
-        note.id === selectedNote.id
-          ? { ...note, title: editTitle, content: editContent, updatedAt: new Date() }
-          : note
-      ));
-      setSelectedNote({ ...selectedNote, title: editTitle, content: editContent });
-      setIsEditing(false);
+      try {
+        const { error } = await supabase
+          .from('notes')
+          .update({
+            title: editTitle,
+            content: editContent,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', selectedNote.id);
+
+        if (error) throw error;
+
+        // Update local state
+        const updatedNote = {
+          ...selectedNote,
+          title: editTitle,
+          content: editContent,
+          updated_at: new Date().toISOString()
+        };
+        
+        setNotes(notes.map(note =>
+          note.id === selectedNote.id ? updatedNote : note
+        ));
+        setSelectedNote(updatedNote);
+        setIsEditing(false);
+      } catch (error) {
+        console.error('Error updating note:', error);
+        alert('Error saving note. Please try again.');
+      }
     }
   };
 
@@ -72,28 +115,115 @@ export function Notes() {
     }
   };
 
-  const deleteNote = (id: string) => {
-    setNotes(notes.filter(note => note.id !== id));
-    if (selectedNote?.id === id) {
-      setSelectedNote(null);
+  const deleteNote = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('notes')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      setNotes(notes.filter(note => note.id !== id));
+      if (selectedNote?.id === id) {
+        setSelectedNote(null);
+      }
+    } catch (error) {
+      console.error('Error deleting note:', error);
+      alert('Error deleting note. Please try again.');
     }
   };
 
-  const createNote = () => {
+  const createNote = async () => {
     if (newNote.title.trim() || newNote.content.trim()) {
-      const note: Note = {
-        id: Date.now().toString(),
-        title: newNote.title || 'Untitled',
-        content: newNote.content,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-      setNotes([note, ...notes]);
-      setNewNote({ title: '', content: '' });
-      setShowNewNote(false);
-      setTimeout(() => selectNote(note), 100);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (!session) {
+          alert('Please log in to create notes');
+          return;
+        }
+
+        const noteData = {
+          title: newNote.title || 'Untitled',
+          content: newNote.content,
+          user_id: session.user.id,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+
+        const { data, error } = await supabase
+          .from('notes')
+          .insert([noteData])
+          .select();
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          const newNoteWithId = data[0];
+          setNotes([newNoteWithId, ...notes]);
+          setNewNote({ title: '', content: '' });
+          setShowNewNote(false);
+          setTimeout(() => selectNote(newNoteWithId), 100);
+        }
+      } catch (error) {
+        console.error('Error creating note:', error);
+        alert('Error creating note. Please try again.');
+      }
     }
   };
+
+  const saveModalNote = async () => {
+    if (selectedNote) {
+      try {
+        const { error } = await supabase
+          .from('notes')
+          .update({
+            title: modalEditTitle,
+            content: modalEditContent,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', selectedNote.id);
+
+        if (error) throw error;
+
+        const updatedNote = {
+          ...selectedNote,
+          title: modalEditTitle,
+          content: modalEditContent,
+          updated_at: new Date().toISOString()
+        };
+
+        setNotes(notes.map(note =>
+          note.id === selectedNote.id ? updatedNote : note
+        ));
+        setSelectedNote(updatedNote);
+        setEditTitle(modalEditTitle);
+        setEditContent(modalEditContent);
+        setIsEditingInModal(false);
+      } catch (error) {
+        console.error('Error updating note in modal:', error);
+        alert('Error saving note. Please try again.');
+      }
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString();
+  };
+
+  if (isLoading) {
+    return (
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden flex flex-col h-full">
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-zinc-600 dark:text-zinc-400">Loading notes...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden flex flex-col h-full">
@@ -153,11 +283,17 @@ export function Notes() {
                     {note.content || 'No content'}
                   </p>
                   <p className="text-xs text-zinc-500 dark:text-zinc-500 mt-2">
-                    {note.updatedAt.toLocaleDateString()}
+                    {formatDate(note.updated_at)}
                   </p>
                 </motion.div>
               ))}
             </AnimatePresence>
+            {notes.length === 0 && (
+              <div className="text-center py-8 text-zinc-500 dark:text-zinc-400">
+                <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <p>No notes yet. Create your first note!</p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -312,23 +448,7 @@ export function Notes() {
                       <motion.button
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.9 }}
-                        onClick={() => {
-                          if (selectedNote) {
-                            const updatedNote = {
-                              ...selectedNote,
-                              title: modalEditTitle,
-                              content: modalEditContent,
-                              updatedAt: new Date()
-                            };
-                            setNotes(notes.map(note =>
-                              note.id === selectedNote.id ? updatedNote : note
-                            ));
-                            setSelectedNote(updatedNote);
-                            setEditTitle(modalEditTitle);
-                            setEditContent(modalEditContent);
-                          }
-                          setIsEditingInModal(false);
-                        }}
+                        onClick={saveModalNote}
                         className="p-2 rounded-lg bg-green-600 text-white hover:bg-green-700"
                         title="Save"
                       >
@@ -405,7 +525,7 @@ export function Notes() {
               {!isEditingInModal && (
                 <div className="p-6 border-t border-zinc-200 dark:border-zinc-700">
                   <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                    Last updated: {selectedNote.updatedAt.toLocaleDateString()} {selectedNote.updatedAt.toLocaleTimeString()}
+                    Last updated: {formatDate(selectedNote.updated_at)} {new Date(selectedNote.updated_at).toLocaleTimeString()}
                   </p>
                   <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-2">
                     Click on the title or content to edit
@@ -476,4 +596,3 @@ export function Notes() {
     </div>
   );
 }
-

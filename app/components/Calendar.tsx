@@ -24,12 +24,13 @@ export function Calendar() {
   const [viewMode, setViewMode] = useState<ViewMode>('month');
   const [showEventModal, setShowEventModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
   // Initialize with current time
   const getInitialEventTime = () => {
     const now = new Date();
     const hours = getHours(now);
     const minutes = getMinutes(now);
-    // Round up to next 15-minute interval
     const roundedMinutes = Math.ceil(minutes / 15) * 15;
     const finalHours = roundedMinutes >= 60 ? hours + 1 : hours;
     const finalMinutes = roundedMinutes >= 60 ? 0 : roundedMinutes;
@@ -54,7 +55,6 @@ export function Calendar() {
     const now = new Date();
     const hours = getHours(now);
     const minutes = getMinutes(now);
-    // Round up to next 15-minute interval
     const roundedMinutes = Math.ceil(minutes / 15) * 15;
     const finalHours = roundedMinutes >= 60 ? hours + 1 : hours;
     const finalMinutes = roundedMinutes >= 60 ? 0 : roundedMinutes;
@@ -78,52 +78,61 @@ export function Calendar() {
   const weekEnd = endOfWeek(currentDate);
   const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd });
 
-  
-
   // Update current time every minute
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date());
-    }, 60000); // Update every minute
+    }, 60000);
     return () => clearInterval(timer);
   }, []);
-// === GOOGLE CALENDAR FETCH LOGIC ===
-    useEffect(() => {
-      const fetchGoogleEvents = async () => {
-        const { data } = await supabase.auth.getSession();
-        const token = data?.session?.provider_token;
-        if (!token) {
-          setEvents([]);
-          return;
-        }
 
-        const nowISO = new Date().toISOString();
-        const res = await fetch(
-          `https://www.googleapis.com/calendar/v3/calendars/primary/events?orderBy=startTime&singleEvents=true&timeMin=${nowISO}&maxResults=50`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        if (!res.ok) {
-          setEvents([]);
-          return;
-        }
-        const gcal = await res.json();
-        const eventsFromGoogle: CalendarEvent[] = (gcal.items || []).map(ev => ({
-          id: ev.id,
-          title: ev.summary || '(No Title)',
-          startTime: ev.start?.dateTime?.substring(11, 16) || ev.start?.date?.substring(11, 16) || '00:00',
-          endTime: ev.end?.dateTime?.substring(11, 16) || ev.end?.date?.substring(11, 16) || '23:59',
-          date: ev.start?.dateTime ? new Date(ev.start.dateTime) : (ev.start?.date ? new Date(ev.start.date) : new Date()),
-          color: '#4285F4', // Google Blue
-          image: undefined,
-        }));
-        setEvents(eventsFromGoogle);
-      };
-      fetchGoogleEvents();
-    }, []);
+  // Load events from Supabase
+  useEffect(() => {
+    fetchEvents();
+  }, []);
+
+  // Fetch events from Supabase
+const fetchEvents = async () => {
+  try {
+    setIsLoading(true);
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (!session) {
+      console.log('No user session found');
+      setIsLoading(false);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('events')
+      .select('*')
+      .order('date', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching events:', error);
+      return;
+    }
+
+    // Convert date strings back to Date objects and map column names
+    const eventsWithDates: CalendarEvent[] = (data || []).map(event => ({
+      id: event.id,
+      title: event.title,
+      startTime: event.start_time,  // Map from start_time
+      endTime: event.end_time,      // Map from end_time
+      date: new Date(event.date),
+      color: event.color,
+    }));
+
+    setEvents(eventsWithDates);
+  } catch (error) {
+    console.error('Error loading events:', error);
+  } finally {
+    setIsLoading(false);
+  }
+};
   // Auto-scroll to current time when switching to week view
   useEffect(() => {
     if (viewMode === 'week') {
-      // Use a small delay to ensure the DOM is ready
       const timeoutId = setTimeout(() => {
         const scrollContainer = document.getElementById('week-scroll-container');
         if (scrollContainer) {
@@ -131,32 +140,20 @@ export function Calendar() {
           const hours = getHours(now);
           const minutes = getMinutes(now);
           const currentTimeInMinutes = hours * 60 + minutes;
-          
-          // Calculate scroll position to show at least 3 hours before and after current time
-          // 3 hours = 180 minutes
-          // Container height is 600px = 600 minutes (10 hours) visible
-          // To show 3 hours before: scroll to currentTime - 180
-          // This ensures:
-          // - Top visible: currentTime - 180 minutes (3 hours before) ✓
-          // - Current time: 180px from top of visible area
-          // - Bottom visible: currentTime + 420 minutes (7 hours after, more than 3 hours) ✓
-          // Ensure we don't scroll to negative values
           const minScrollPosition = Math.max(0, currentTimeInMinutes - 180);
-          // Also ensure we don't scroll past the end (1440 minutes total - 600 visible = 840 max)
           const maxScrollPosition = 1440 - 600;
           const scrollPosition = Math.min(minScrollPosition, maxScrollPosition);
           
-          // Scroll to the position with smooth behavior
           scrollContainer.scrollTo({
             top: scrollPosition,
             behavior: 'smooth'
           });
         }
-      }, 100); // Small delay to ensure DOM is fully rendered
+      }, 100);
       
       return () => clearTimeout(timeoutId);
     }
-  }, [viewMode]); // Only trigger when switching to week view
+  }, [viewMode]);
 
   // Close context menu on outside click
   useEffect(() => {
@@ -190,8 +187,6 @@ export function Calendar() {
     return getTimePosition(startTime) * 60;
   };
 
-
-  // Get current time position for indicator line
   const getCurrentTimePosition = (day: Date): number | null => {
     if (!isSameDay(day, currentTime)) return null;
     const hours = getHours(currentTime);
@@ -199,25 +194,69 @@ export function Calendar() {
     return (hours * 60 + minutes);
   };
 
-  const handleAddEvent = () => {
-    if (newEvent.title.trim()) {
-      const event: CalendarEvent = {
-        id: editingEvent?.id || Date.now().toString(),
-        ...newEvent,
-        date: selectedDate,
-      };
-      if (editingEvent) {
-        setEvents(events.map(e => e.id === editingEvent.id ? event : e));
-      } else {
-        setEvents([...events, event]);
+  const handleAddEvent = async () => {
+  if (newEvent.title.trim()) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        alert('Please log in to create events');
+        return;
       }
-      // Reset to current time for next event
+
+      const eventData = {
+        title: newEvent.title,
+        start_time: newEvent.startTime,  // Changed to start_time
+        end_time: newEvent.endTime,      // Changed to end_time
+        date: selectedDate.toISOString(),
+        color: newEvent.color,
+        user_id: session.user.id
+      };
+
+      if (editingEvent) {
+        // Update existing event
+        const { error } = await supabase
+          .from('events')
+          .update(eventData)
+          .eq('id', editingEvent.id);
+
+        if (error) throw error;
+
+        setEvents(events.map(e => e.id === editingEvent.id ? {
+          ...editingEvent,
+          ...newEvent,
+          date: selectedDate
+        } : e));
+      } else {
+        // Create new event
+        const { data, error } = await supabase
+          .from('events')
+          .insert([eventData])
+          .select();
+
+        if (error) throw error;
+
+        if (data) {
+          const newEventWithId: CalendarEvent = {
+            id: data[0].id,
+            ...newEvent,
+            date: selectedDate,
+          };
+          setEvents([...events, newEventWithId]);
+        }
+      }
+
+      // Reset form
       const currentStartTime = getCurrentTimeString();
       setNewEvent({ title: '', startTime: currentStartTime, endTime: addOneHour(currentStartTime), color: '#3b82f6' });
       setEditingEvent(null);
       setShowEventModal(false);
+    } catch (error) {
+      console.error('Error saving event:', error);
+      alert('Error saving event. Please try again.');
     }
-  };
+  }
+};
 
   const handleEditEvent = (event: CalendarEvent) => {
     setEditingEvent(event);
@@ -231,14 +270,26 @@ export function Calendar() {
     setShowEventModal(true);
   };
 
-  const handleDeleteEvent = (eventId: string) => {
-    setEvents(events.filter(e => e.id !== eventId));
+  const handleDeleteEvent = async (eventId: string) => {
+    try {
+      const { error } = await supabase
+        .from('events')
+        .delete()
+        .eq('id', eventId);
+
+      if (error) throw error;
+
+      setEvents(events.filter(e => e.id !== eventId));
+      setContextMenu(null);
+    } catch (error) {
+      console.error('Error deleting event:', error);
+      alert('Error deleting event. Please try again.');
+    }
   };
 
   const handleOpenEventModal = (date?: Date, time?: string) => {
     setEditingEvent(null);
     if (date) setSelectedDate(date);
-    // Use current time if no time specified, otherwise use the provided time
     const startTime = time || getCurrentTimeString();
     setNewEvent({ 
       title: '', 
@@ -249,37 +300,25 @@ export function Calendar() {
     setShowEventModal(true);
   };
 
-  // Handle clicking on time slots to create events
   const handleTimeSlotClick = (e: React.MouseEvent, day: Date) => {
-    // Don't create event if clicking on an existing event
     if ((e.target as HTMLElement).closest('.event-block')) {
       return;
     }
 
     const container = e.currentTarget as HTMLElement;
     const rect = container.getBoundingClientRect();
-    
-    // Find the scrollable container
     const scrollContainer = document.getElementById('week-scroll-container');
     const scrollTop = scrollContainer?.scrollTop || 0;
-    
-    // Calculate relative Y position accounting for scroll
     const relativeY = e.clientY - rect.top + scrollTop;
-    
-    // Convert to minutes (1px = 1 minute since height is 1440px for 1440 minutes)
     const minutes = Math.max(0, Math.min(1440, relativeY));
-    
-    // Round to nearest 15-minute interval
     const roundedMinutes = Math.round(minutes / 15) * 15;
     const hours = Math.floor(roundedMinutes / 60);
     const mins = roundedMinutes % 60;
     const timeString = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
     
-    // Open modal with the clicked time
     handleOpenEventModal(day, timeString);
   };
 
-  // Handle right-click for context menu
   const handleContextMenu = (e: React.MouseEvent, event: CalendarEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -289,7 +328,6 @@ export function Calendar() {
       event,
     });
   };
-
 
   const navigateDate = (direction: 'prev' | 'next') => {
     if (viewMode === 'month') {
@@ -302,6 +340,17 @@ export function Calendar() {
   const colorOptions = [
     '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'
   ];
+
+  if (isLoading) {
+    return (
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-lg p-6 border border-zinc-200 dark:border-zinc-800 flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-zinc-600 dark:text-zinc-400">Loading calendar...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-lg p-6 border border-zinc-200 dark:border-zinc-800">
@@ -768,7 +817,6 @@ export function Calendar() {
                     onClick={() => {
                       setShowEventModal(false);
                       setEditingEvent(null);
-                      // Reset to current time
                       const currentStartTime = getCurrentTimeString();
                       setNewEvent({ title: '', startTime: currentStartTime, endTime: addOneHour(currentStartTime), color: '#3b82f6' });
                     }}
@@ -785,4 +833,3 @@ export function Calendar() {
     </div>
   );
 }
-

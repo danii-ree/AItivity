@@ -48,7 +48,7 @@ export function Dashboard() {
             {tabs.map((tab) => (
               <motion.button
                 key={tab.id}
-                whileHover={{ scale: 1.05 }}
+                whileHover={{ scale: 0.95 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => setActiveTab(tab.id)}
                 className={`
