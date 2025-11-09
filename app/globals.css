@@ -57,3 +57,12 @@ body {
 .dark ::-webkit-scrollbar-thumb:hover {
   background: #64748b;
 }
+@keyframes gradient-x {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.animate-gradient-x {
+  background-size: 200% 200%;
+  animation: gradient-x 7s ease-in-out infinite;
+}

@@ -1,9 +1,9 @@
 'use client';
-
 import { useState, useEffect } from 'react';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, startOfWeek, endOfWeek, addWeeks, subWeeks, setHours, getHours, getMinutes } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, ChevronRight, Clock, Image as ImageIcon, Plus, Edit2, Trash2 } from 'lucide-react';
+import { supabase } from '@/lib/supabaseClient';
 
 type ViewMode = 'month' | 'week';
 
@@ -78,6 +78,8 @@ export function Calendar() {
   const weekEnd = endOfWeek(currentDate);
   const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd });
 
+  
+
   // Update current time every minute
   useEffect(() => {
     const timer = setInterval(() => {
@@ -85,7 +87,39 @@ export function Calendar() {
     }, 60000); // Update every minute
     return () => clearInterval(timer);
   }, []);
+// === GOOGLE CALENDAR FETCH LOGIC ===
+    useEffect(() => {
+      const fetchGoogleEvents = async () => {
+        const { data } = await supabase.auth.getSession();
+        const token = data?.session?.provider_token;
+        if (!token) {
+          setEvents([]);
+          return;
+        }
 
+        const nowISO = new Date().toISOString();
+        const res = await fetch(
+          `https://www.googleapis.com/calendar/v3/calendars/primary/events?orderBy=startTime&singleEvents=true&timeMin=${nowISO}&maxResults=50`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (!res.ok) {
+          setEvents([]);
+          return;
+        }
+        const gcal = await res.json();
+        const eventsFromGoogle: CalendarEvent[] = (gcal.items || []).map(ev => ({
+          id: ev.id,
+          title: ev.summary || '(No Title)',
+          startTime: ev.start?.dateTime?.substring(11, 16) || ev.start?.date?.substring(11, 16) || '00:00',
+          endTime: ev.end?.dateTime?.substring(11, 16) || ev.end?.date?.substring(11, 16) || '23:59',
+          date: ev.start?.dateTime ? new Date(ev.start.dateTime) : (ev.start?.date ? new Date(ev.start.date) : new Date()),
+          color: '#4285F4', // Google Blue
+          image: undefined,
+        }));
+        setEvents(eventsFromGoogle);
+      };
+      fetchGoogleEvents();
+    }, []);
   // Auto-scroll to current time when switching to week view
   useEffect(() => {
     if (viewMode === 'week') {
