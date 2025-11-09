@@ -1,93 +1,46 @@
 // analyze_image.js
-
-import fs from 'fs';
-import fetch from 'node-fetch';
-import vision from '@google-cloud/vision';
-import dotenv from 'dotenv';
+import fs from "fs";
+import OpenAI from "openai";
+import dotenv from "dotenv";
 dotenv.config();
 
-// --- Configuration ---
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const VISION_KEY_FILE = 'united-triode-477700-p9-114c71f98456.json';
-const IMAGE_PATH = 'image.jpg';
+const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// --- Initialize Google Vision client ---
-const client = new vision.ImageAnnotatorClient({
-  keyFilename: VISION_KEY_FILE,
-});
+const IMAGE_PATH = "image.jpg";
 
-// --- Function: Extract text from image ---
-async function extractText(imagePath) {
+async function analyzeImage() {
   try {
-    const [result] = await client.textDetection(imagePath);
-    const detections = result.textAnnotations;
-    if (detections.length > 0) {
-      return detections[0].description;
-    } else {
-      return '';
-    }
+    // Read image and convert to Base64
+    const imageBytes = fs.readFileSync(IMAGE_PATH);
+    const imageBase64 = imageBytes.toString("base64");
+
+    // Send to OpenAI GPT-4V / GPT-4.1-mini
+    const response = await client.chat.completions.create({
+      model: "gpt-4.1-mini", // or "gpt-4o-mini" if you have access
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: "Describe this image in detail and include any text you see in it."
+            },
+            {
+              type: "input_image",
+              image_url: `data:image/jpeg;base64,${imageBase64}`
+            }
+          ]
+        }
+      ]
+    });
+
+    const description = response.choices[0].message.content[0].text;
+    console.log("=== GPT Image Analysis ===\n", description);
+
   } catch (err) {
-    console.error('Error extracting text from image:', err);
-    return '';
+    console.error("Error analyzing image:", err);
   }
 }
 
-// --- Function: Send text to Gemini API for feedback ---
-async function giveFeedback(text) {
-  const requestBody = {
-    prompt: `Here is some extracted text from an image:\n\n"${text}"\n\nPlease provide a brief summary and feedback:`,
-    temperature: 0.7,
-    candidate_count: 1,
-  };
-
-  try {
-    const response = await fetch(
-      'https://generativelanguage.googleapis.com/v1beta2/models/text-bison-001:generate',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${GEMINI_API_KEY}`,
-        },
-        body: JSON.stringify(requestBody),
-      }
-    );
-
-    console.log('Response status:', response.status);
-
-    const rawResponse = await response.text();
-    if (!rawResponse) {
-      console.log('Empty response from Gemini API');
-      return;
-    }
-
-    let data;
-    try {
-      data = JSON.parse(rawResponse);
-    } catch (jsonErr) {
-      console.error('Failed to parse JSON from Gemini API:', rawResponse, jsonErr);
-      return;
-    }
-
-    if (data?.candidates?.length > 0) {
-      console.log('\n--- Extracted Text ---\n');
-      console.log(text);
-      console.log('\n--- Gemini Feedback ---\n');
-      console.log(data.candidates[0].content);
-    } else {
-      console.log('No response from Gemini.');
-    }
-  } catch (err) {
-    console.error('Error calling Gemini API:', err);
-  }
-}
-
-// --- Main ---
-(async () => {
-  const text = await extractText(IMAGE_PATH);
-  if (text) {
-    await giveFeedback(text);
-  } else {
-    console.log('No text detected in the image.');
-  }
-})();
+// Run the analysis
+analyzeImage();

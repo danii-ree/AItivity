@@ -1,0 +1,14 @@
+{
+  "name": "image-analyzer",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Analyze local images using OpenAI GPT",
+  "main": "analyze_image.js",
+  "scripts": {
+    "start": "node analyze_image.js"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "openai": "^6.8.1"
+  }
+}
