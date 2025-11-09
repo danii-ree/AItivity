@@ -1,8 +1,9 @@
+// components/Dashboard.tsx
 'use client';
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Calendar, Calendar as CalendarIcon, CheckSquare, FileText, MessageSquare, Sparkles } from 'lucide-react';
+import { Calendar, Calendar as CalendarIcon, CheckSquare, FileText, MessageSquare, Sparkles, Mail } from 'lucide-react';
 import { Calendar as CalendarComponent } from './Calendar';
 import { TodoList } from './TodoList';
 import { Notes } from './Notes';
@@ -86,4 +87,3 @@ export function Dashboard() {
     </div>
   );
 }
-

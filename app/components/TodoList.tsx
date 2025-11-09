@@ -276,50 +276,7 @@ export function TodoList() {
     <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-lg p-6 border border-zinc-200 dark:border-zinc-800">
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold text-zinc-900 dark:text-white">Todo List</h2>
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => setShowAISuggestions(!showAISuggestions)}
-          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg hover:from-purple-700 hover:to-pink-700 transition-all"
-        >
-          <Sparkles className="w-4 h-4" />
-          AI Suggestions
-        </motion.button>
       </div>
-
-      {/* AI Suggestions Panel */}
-      <AnimatePresence>
-        {showAISuggestions && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            className="mb-6 p-4 rounded-lg bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 border border-purple-200 dark:border-purple-800"
-          >
-            <div className="flex items-center gap-2 mb-3">
-              <Sparkles className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-              <h3 className="font-semibold text-zinc-900 dark:text-white">AI Suggested Tasks</h3>
-            </div>
-            <div className="space-y-2">
-              {aiSuggestions.map((suggestion, idx) => (
-                <motion.button
-                  key={idx}
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: idx * 0.1 }}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => addAISuggestion(suggestion)}
-                  className="w-full text-left p-3 rounded-lg bg-white dark:bg-zinc-800 hover:bg-purple-50 dark:hover:bg-purple-900/30 transition-colors flex items-center justify-between"
-                >
-                  <span className="text-zinc-900 dark:text-white">{suggestion}</span>
-                  <Plus className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                </motion.button>
-              ))}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Add Todo Input */}
       <div className="flex gap-2 mb-6">
