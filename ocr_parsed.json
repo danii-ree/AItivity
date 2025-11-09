@@ -1,0 +1,17 @@
+{
+  "times": [
+    "15:00"
+  ],
+  "codes": [
+    "EE",
+    "FE"
+  ],
+  "confidence": 21,
+  "fullText": "FE\n4              4\n0\n0\n0\nE\n1500\nI\n00           EE",
+  "possibleClasses": [],
+  "possibleSchedule": [
+    {
+      "time": "15:00"
+    }
+  ]
+}
