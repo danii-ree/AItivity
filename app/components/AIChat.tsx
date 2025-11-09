@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { callOpenAI } from '../utils/openai';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Sparkles, Bot, User, Loader, Paperclip, X, Trash2, Image, History } from 'lucide-react';
+import { Send, Sparkles, Bot, User, Loader, Paperclip, X, Trash2, Image, History, Calendar, Plus } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 
 interface Message {
@@ -21,6 +22,15 @@ interface ChatSession {
   message_count: number;
 }
 
+interface CalendarEvent {
+  id: string;
+  title: string;
+  start_time: string;
+  end_time: string;
+  date: string;
+  color: string;
+}
+
 export function AIChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -30,12 +40,14 @@ export function AIChat() {
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load chat sessions and current session
   useEffect(() => {
     fetchChatSessions();
+    fetchEvents();
   }, []);
 
   // Auto-scroll to bottom when messages change
@@ -57,6 +69,23 @@ export function AIChat() {
       setChatSessions(data || []);
     } catch (error) {
       console.error('Error fetching chat sessions:', error);
+    }
+  };
+
+  const fetchEvents = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const { data, error } = await supabase
+        .from('events')
+        .select('*')
+        .order('date', { ascending: true });
+
+      if (error) throw error;
+      setEvents(data || []);
+    } catch (error) {
+      console.error('Error fetching events:', error);
     }
   };
 
@@ -151,13 +180,11 @@ export function AIChat() {
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Check if file is an image
       if (!file.type.startsWith('image/')) {
         alert('Please select an image file');
         return;
       }
 
-      // Check file size (max 5MB)
       if (file.size > 5 * 1024 * 1024) {
         alert('Image size should be less than 5MB');
         return;
@@ -180,6 +207,242 @@ export function AIChat() {
     }
   };
 
+const callOpenAI = async (input: string) => {
+  try {
+    // Convert current messages to the format expected by the API
+    const conversationHistory = messages.map(msg => ({
+      role: msg.role as 'user' | 'assistant',
+      content: msg.content
+    }));
+
+    console.log('Sending request to /api/chat...');
+    
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        message: input,
+        conversationHistory,
+        currentEvents: events
+      }),
+    });
+
+    console.log('Response status:', response.status);
+    console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+
+    // Get the raw text first to see what we're receiving
+    const responseText = await response.text();
+    console.log('Raw response:', responseText);
+
+    // Try to parse as JSON
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error('Failed to parse JSON:', parseError);
+      console.error('Raw response was:', responseText);
+      throw new Error(`API returned non-JSON response: ${responseText.substring(0, 100)}`);
+    }
+
+    if (!response.ok) {
+      throw new Error(`OpenAI API error: ${response.status} - ${data.error || 'Unknown error'}`);
+    }
+
+    return data.response;
+  } catch (error) {
+    console.error('Error calling OpenAI:', error);
+    throw error;
+  }
+};
+
+  const createCalendarEvent = async (eventData: {
+    title: string;
+    date: string;
+    start_time: string;
+    end_time: string;
+    color?: string;
+  }) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+
+      const event = {
+        title: eventData.title,
+        date: eventData.date,
+        start_time: eventData.start_time,
+        end_time: eventData.end_time,
+        color: eventData.color || '#3b82f6',
+        user_id: session.user.id,
+      };
+
+      const { data, error } = await supabase
+        .from('events')
+        .insert([event])
+        .select();
+
+      if (error) throw error;
+      return data?.[0];
+    } catch (error) {
+      console.error('Error creating calendar event:', error);
+      throw error;
+    }
+  };
+
+  const updateCalendarEvent = async (eventId: string, updates: Partial<CalendarEvent>) => {
+    try {
+      const { error } = await supabase
+        .from('events')
+        .update(updates)
+        .eq('id', eventId);
+
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error updating calendar event:', error);
+      throw error;
+    }
+  };
+
+  const deleteCalendarEvent = async (eventId: string) => {
+    try {
+      const { error } = await supabase
+        .from('events')
+        .delete()
+        .eq('id', eventId);
+
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error deleting calendar event:', error);
+      throw error;
+    }
+  };
+
+  const generateUUID = () => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // Fallback for environments without crypto.randomUUID
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c == 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};
+const parseAIResponse = async (response: string): Promise<{ response: string; actions?: any[] }> => {
+  try {
+    console.log('=== PARSING AI RESPONSE ===');
+    console.log('Raw AI response:', response);
+
+    // Check if the response contains calendar actions
+    const hasCreateEvent = response.includes('CREATE_EVENT:');
+    const hasUpdateEvent = response.includes('UPDATE_EVENT:');
+    const hasDeleteEvent = response.includes('DELETE_EVENT:');
+
+    console.log('Action detection:', {
+      hasCreateEvent,
+      hasUpdateEvent, 
+      hasDeleteEvent
+    });
+
+    if (!hasCreateEvent && !hasUpdateEvent && !hasDeleteEvent) {
+      console.log('No calendar actions found, returning original response');
+      return { response };
+    }
+
+    const lines = response.split('\n');
+    let finalResponse = '';
+    const actions: any[] = [];
+
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      console.log('Processing line:', trimmedLine);
+      
+      if (trimmedLine.startsWith('CREATE_EVENT:')) {
+        try {
+          const jsonStr = trimmedLine.replace('CREATE_EVENT:', '').trim();
+          console.log('Creating event with data:', jsonStr);
+          
+          const eventData = JSON.parse(jsonStr);
+          
+          // Validate required fields
+          if (!eventData.title || !eventData.date || !eventData.start_time || !eventData.end_time) {
+            finalResponse += `❌ Missing required fields for event creation. Need title, date, start_time, and end_time.\n`;
+            continue;
+          }
+
+          console.log('Calling createCalendarEvent with:', eventData);
+          const newEvent = await createCalendarEvent(eventData);
+          console.log('Event created successfully:', newEvent);
+          
+          actions.push({ type: 'create', event: newEvent });
+          finalResponse += `✅ Created event: "${eventData.title}" on ${eventData.date} from ${eventData.start_time} to ${eventData.end_time}\n`;
+          
+        } catch (error) {
+          console.error('Error creating event:', error);
+          finalResponse += `❌ Failed to create event: ${error instanceof Error ? error.message : 'Unknown error'}\n`;
+        }
+      } 
+      else if (trimmedLine.startsWith('UPDATE_EVENT:')) {
+        try {
+          const jsonStr = trimmedLine.replace('UPDATE_EVENT:', '').trim();
+          console.log('Updating event with data:', jsonStr);
+          
+          const updateData = JSON.parse(jsonStr);
+          
+          if (!updateData.eventId) {
+            finalResponse += `❌ Missing eventId for update.\n`;
+            continue;
+          }
+
+          await updateCalendarEvent(updateData.eventId, updateData.updates || {});
+          actions.push({ type: 'update', eventId: updateData.eventId, updates: updateData.updates });
+          finalResponse += `✅ Updated event\n`;
+          
+        } catch (error) {
+          console.error('Error updating event:', error);
+          finalResponse += `❌ Failed to update event: ${error instanceof Error ? error.message : 'Unknown error'}\n`;
+        }
+      } 
+      else if (trimmedLine.startsWith('DELETE_EVENT:')) {
+        try {
+          const jsonStr = trimmedLine.replace('DELETE_EVENT:', '').trim();
+          console.log('Deleting event with data:', jsonStr);
+          
+          const deleteData = JSON.parse(jsonStr);
+          
+          if (!deleteData.eventId) {
+            finalResponse += `❌ Missing eventId for deletion.\n`;
+            continue;
+          }
+
+          await deleteCalendarEvent(deleteData.eventId);
+          actions.push({ type: 'delete', eventId: deleteData.eventId });
+          finalResponse += `✅ Deleted event\n`;
+          
+        } catch (error) {
+          console.error('Error deleting event:', error);
+          finalResponse += `❌ Failed to delete event: ${error instanceof Error ? error.message : 'Unknown error'}\n`;
+        }
+      } 
+      else {
+        // Keep non-action lines as part of the response
+        finalResponse += trimmedLine + '\n';
+      }
+    }
+
+    console.log('Final parsed response:', finalResponse);
+    console.log('Actions taken:', actions);
+
+    // Refresh events after modifications
+    await fetchEvents();
+
+    return { response: finalResponse.trim(), actions };
+  } catch (error) {
+    console.error('Error parsing AI response:', error);
+    return { response: "I encountered an error while processing your request. Please try again." };
+  }
+};
   const handleSend = async () => {
     if ((!input.trim() && !selectedImage) || isLoading) return;
 
@@ -217,9 +480,8 @@ export function AIChat() {
         imageUrl = await uploadImage(selectedImage);
       }
 
-      // Save user message
       const userMessage: Message = {
-        id: Date.now().toString(),
+        id: generateUUID(), 
         role: 'user',
         content: input,
         timestamp: new Date().toISOString(),
@@ -239,30 +501,15 @@ export function AIChat() {
       setInput('');
       removeImage();
 
-      // Simulate AI response (replace with actual API call later)
-      setTimeout(async () => {
-        const responses: Record<string, string> = {
-          'goal': "Great! Let's set some goals. What specific goals would you like to achieve? I can help break them down into actionable tasks and schedule them in your calendar.",
-          'calendar': "I can help you organize your calendar! Would you like me to suggest time blocks based on your goals, or help you schedule specific events?",
-          'task': "I can automate tasks for you! Tell me what tasks you'd like to automate, and I'll help set them up with reminders and scheduling.",
-          'email': "Email automation is coming soon! I'll be able to send automated reminders and follow-ups based on your calendar and tasks.",
-          'recommendation': "I'd love to provide personalized recommendations! Tell me about your interests, university, or current projects, and I'll tailor suggestions just for you.",
-        };
-
-        const lowerInput = input.toLowerCase();
-        let response = "I understand! Let me help you with that. Can you provide more details so I can assist you better?";
-
-        for (const [key, value] of Object.entries(responses)) {
-          if (lowerInput.includes(key)) {
-            response = value;
-            break;
-          }
-        }
+      // Get AI response from OpenAI
+      try {
+        const aiResponse = await callOpenAI(input);
+        const { response: finalResponse, actions } = await parseAIResponse(aiResponse);
 
         const assistantMessage: Message = {
-          id: (Date.now() + 1).toString(),
+          id: generateUUID(), 
           role: 'assistant',
-          content: response,
+          content: finalResponse,
           timestamp: new Date().toISOString(),
         };
 
@@ -287,22 +534,54 @@ export function AIChat() {
           .eq('id', sessionId);
 
         await fetchChatSessions();
-        setIsLoading(false);
-      }, 1000);
+
+      } catch (error) {
+        console.error('Error getting AI response:', error);
+        
+        const fallbackMessage: Message = {
+          id: generateUUID(), 
+          role: 'assistant',
+          content: "I'm having trouble connecting right now. Please try again in a moment.",
+          timestamp: new Date().toISOString(),
+        };
+
+        const { error: fallbackError } = await supabase
+          .from('chat_messages')
+          .insert([{
+            ...fallbackMessage,
+            session_id: sessionId
+          }]);
+
+        if (!fallbackError) {
+          setMessages(prev => [...prev, fallbackMessage]);
+        }
+      }
 
     } catch (error) {
       console.error('Error sending message:', error);
       alert('Error sending message. Please try again.');
+    } finally {
       setIsLoading(false);
     }
   };
-
-  const quickActions = [
-    { text: 'Set goals', prompt: 'I want to set some goals' },
-    { text: 'Organize calendar', prompt: 'Help me organize my calendar' },
-    { text: 'Automate tasks', prompt: 'I want to automate some tasks' },
-    { text: 'Get recommendations', prompt: 'Give me personalized recommendations' },
-  ];
+const quickActions = [
+  { 
+    text: 'Schedule meeting', 
+    prompt: 'Schedule a team meeting for tomorrow at 2 PM for 1 hour with the title "Team Standup"' 
+  },
+  { 
+    text: 'Add study session', 
+    prompt: 'Add a study session for machine learning this Friday from 3-5 PM' 
+  },
+  { 
+    text: 'Plan workout', 
+    prompt: 'Schedule a workout session for tomorrow at 7 AM for 45 minutes' 
+  },
+  { 
+    text: 'View my schedule', 
+    prompt: 'What events do I have scheduled for this week?' 
+  },
+];
 
   const formatTime = (timestamp: string) => {
     return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -323,7 +602,7 @@ export function AIChat() {
             </div>
             <div>
               <h2 className="text-2xl font-bold text-zinc-900 dark:text-white">AI Assistant</h2>
-              <p className="text-sm text-zinc-600 dark:text-zinc-400">Your productivity companion</p>
+              <p className="text-sm text-zinc-600 dark:text-zinc-400">Calendar & Productivity Manager</p>
             </div>
           </div>
           
@@ -362,8 +641,9 @@ export function AIChat() {
                 setInput(action.prompt);
                 setTimeout(() => handleSend(), 100);
               }}
-              className="px-3 py-1.5 text-sm rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-white hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
+              className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-white hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
             >
+              <Calendar className="w-3 h-3" />
               {action.text}
             </motion.button>
           ))}
@@ -435,7 +715,23 @@ export function AIChat() {
             <div className="text-center text-zinc-500 dark:text-zinc-400">
               <Sparkles className="w-12 h-12 mx-auto mb-4 opacity-50" />
               <p>Start a conversation with your AI assistant!</p>
-              <p className="text-sm mt-2">Ask about goals, calendar, tasks, or get recommendations.</p>
+              <p className="text-sm mt-2">I can help you manage your calendar, schedule events, and optimize your time.</p>
+              <div className="mt-4 flex flex-wrap gap-2 justify-center">
+                {quickActions.map((action, idx) => (
+                  <motion.button
+                    key={idx}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => {
+                      setInput(action.prompt);
+                      setTimeout(() => handleSend(), 100);
+                    }}
+                    className="px-3 py-2 text-xs rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-white hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
+                  >
+                    {action.text}
+                  </motion.button>
+                ))}
+              </div>
             </div>
           </div>
         )}
@@ -565,7 +861,7 @@ export function AIChat() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="Ask me anything about productivity..."
+            placeholder="Ask me to schedule events, check availability, or manage your calendar..."
             className="flex-1 px-4 py-3 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
           />
 
