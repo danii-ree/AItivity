@@ -1,6 +1,7 @@
-import fs from "fs";
-import path from "path";
 import express from "express";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
 import OpenAI from "openai";
 import dotenv from "dotenv";
 
@@ -8,36 +9,52 @@ dotenv.config();
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const app = express();
-const PORT = 3000;
-const IMAGE_NAME = "image.jpg";
-const IMAGE_PATH = path.join(process.cwd(), IMAGE_NAME);
+const upload = multer({ dest: "uploads/" }); // temp folder for uploads
 
-// Serve the local image
-app.get(`/${IMAGE_NAME}`, (req, res) => {
-  res.sendFile(IMAGE_PATH);
+// Simple HTML page for uploading
+app.get("/", (req, res) => {
+  res.send(`
+    <h2>Upload an image to analyze</h2>
+    <form method="POST" action="/analyze" enctype="multipart/form-data">
+      <input type="file" name="image" accept="image/*" required />
+      <button type="submit">Analyze</button>
+    </form>
+  `);
 });
 
-// Start the server
-app.listen(PORT, async () => {
-  console.log(`Local image server running at http://localhost:${PORT}/${IMAGE_NAME}`);
-
+// Handle file upload
+app.post("/analyze", upload.single("image"), async (req, res) => {
   try {
-    const localImageUrl = `http://localhost:${PORT}/${IMAGE_NAME}`;
+    const filePath = req.file.path;
 
-    // Send URL to OpenAI GPT
+    // In a real deployed app, you would upload this file to a **public URL**
+    // For demonstration, let's assume you host it publicly at some URL
+    // Replace this with your public URL of the uploaded file:
+    const publicImageUrl = `https://your-public-bucket-url/${req.file.filename}`;
+
+    // Ask OpenAI to analyze the image
     const response = await client.chat.completions.create({
-      model: "gpt-4.1-mini", // or gpt-4o-mini if you have access
+      model: "gpt-4.1-mini",
       messages: [
         {
           role: "user",
-          content: `Describe this image in detail and provide any insights: ${localImageUrl}`
+          content: `Here is an image URL: ${publicImageUrl}\nPlease describe the image and summarize any schedule information.`
         }
       ]
     });
 
-    const description = response.choices[0].message.content;
-    console.log("\n=== GPT Description ===\n", description);
+    // Delete the temp uploaded file
+    fs.unlinkSync(filePath);
+
+    res.send(`
+      <h3>GPT Analysis:</h3>
+      <pre>${response.choices[0].message.content}</pre>
+      <a href="/">Upload another image</a>
+    `);
   } catch (err) {
-    console.error("Error analyzing image:", err);
+    console.error(err);
+    res.status(500).send("Error analyzing image: " + err.message);
   }
 });
+
+app.listen(3000, () => console.log("Server running on http://localhost:3000"));
